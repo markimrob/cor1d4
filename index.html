@@ -1,0 +1,706 @@
+A versão abaixo é um **arquivo HTML único**, adaptado para celular: tem botões de toque para virar, acelerar e frear, além de controles de teclado. Salve como `index.html`. O Three.js é carregado por CDN, então é necessária conexão com a internet.
+
+```html
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#101820">
+  <title>Corrida 3D</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      overscroll-behavior: none;
+      background: #101820;
+      color: white;
+      font-family: system-ui, sans-serif;
+      touch-action: none;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    #hud {
+      position: fixed;
+      z-index: 2;
+      top: max(12px, env(safe-area-inset-top));
+      left: max(12px, env(safe-area-inset-left));
+      right: max(12px, env(safe-area-inset-right));
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    .badge {
+      padding: 9px 12px;
+      border: 1px solid #ffffff35;
+      border-radius: 12px;
+      background: #07111ddd;
+      color: white;
+      font-size: 14px;
+      font-weight: 700;
+      box-shadow: 0 4px 18px #0005;
+    }
+
+    #sound-toggle {
+      pointer-events: auto;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    #overlay {
+      position: fixed;
+      z-index: 5;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: linear-gradient(#07111d66, #07111dcc);
+      text-align: center;
+      touch-action: auto;
+    }
+
+    #panel {
+      width: min(440px, 100%);
+      padding: 30px;
+      border: 1px solid #ffffff35;
+      border-radius: 22px;
+      background: #101b2bef;
+      box-shadow: 0 20px 80px #0009;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(2rem, 8vw, 3.2rem);
+    }
+
+    p {
+      color: #c6d4e3;
+      line-height: 1.6;
+    }
+
+    #start {
+      min-height: 48px;
+      padding: 12px 24px;
+      border: 0;
+      border-radius: 12px;
+      background: #20d18b;
+      color: #062216;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    #mobile-controls {
+      position: fixed;
+      z-index: 3;
+      right: max(14px, env(safe-area-inset-right));
+      bottom: max(16px, env(safe-area-inset-bottom));
+      left: max(14px, env(safe-area-inset-left));
+      display: none;
+      align-items: flex-end;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+
+    .control-group {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+      pointer-events: auto;
+    }
+
+    .control {
+      display: grid;
+      place-items: center;
+      width: clamp(58px, 16vw, 76px);
+      height: clamp(58px, 16vw, 76px);
+      padding: 0;
+      border: 1px solid #ffffff70;
+      border-radius: 50%;
+      background: #07111dcc;
+      color: white;
+      font-size: 1.6rem;
+      font-weight: 800;
+      box-shadow: 0 4px 16px #0006;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+
+    .control:active,
+    .control.pressed {
+      background: #20d18bcc;
+      transform: scale(0.96);
+    }
+
+    .control.gas {
+      background: #117747dd;
+      font-size: 1.35rem;
+    }
+
+    .control.brake {
+      background: #a52c31dd;
+      font-size: 1.25rem;
+    }
+
+    @media (pointer: coarse), (max-width: 700px) {
+      #mobile-controls { display: flex; }
+      #panel { padding: 24px; }
+      .badge { padding: 8px 10px; font-size: 12px; }
+    }
+
+    @media (max-height: 430px) {
+      #mobile-controls { bottom: max(8px, env(safe-area-inset-bottom)); }
+      .control {
+        width: 54px;
+        height: 54px;
+      }
+      #panel { padding: 16px 22px; }
+      h1 { font-size: 2rem; }
+      #message { margin: 8px 0 14px; }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="hud">
+    <div class="badge">🏁 <span id="score">0</span> m</div>
+    <div class="badge">⚡ <span id="speed">0</span> km/h</div>
+    <button class="badge" id="sound-toggle" type="button">🔊 Som</button>
+  </div>
+
+  <div id="overlay">
+    <div id="panel">
+      <h1 id="title">Corrida 3D</h1>
+      <p id="message">
+        Desvie dos carros e tente chegar o mais longe possível.<br>
+        Celular: use os botões na tela.<br>
+        Computador: ← → ou A/D; acelere com ↑/W e freie com ↓/S.
+      </p>
+      <button id="start" type="button">Começar corrida</button>
+    </div>
+  </div>
+
+  <div id="mobile-controls" aria-label="Controles do jogo">
+    <div class="control-group">
+      <button class="control" data-key="arrowleft" aria-label="Virar à esquerda">◀</button>
+      <button class="control" data-key="arrowright" aria-label="Virar à direita">▶</button>
+    </div>
+    <div class="control-group">
+      <button class="control brake" data-key="arrowdown" aria-label="Frear">▼</button>
+      <button class="control gas" data-key="arrowup" aria-label="Acelerar">▲</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x83c9f3);
+    scene.fog = new THREE.Fog(0x83c9f3, 45, 150);
+
+    const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 250);
+    camera.position.set(0, 7, 14);
+    camera.lookAt(0, 1, -12);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    document.body.appendChild(renderer.domElement);
+
+    scene.add(new THREE.HemisphereLight(0xdaf2ff, 0x53633c, 2));
+
+    const sun = new THREE.DirectionalLight(0xffffff, 3);
+    sun.position.set(-8, 16, 8);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    scene.add(sun);
+
+    const material = color => new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.78
+    });
+
+    // Terreno e pista
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(400, 240),
+      material(0x438b45)
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(0, -0.12, -55);
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    const road = new THREE.Mesh(
+      new THREE.BoxGeometry(18, 0.2, 180),
+      material(0x343a40)
+    );
+    road.position.set(0, -0.02, -65);
+    road.receiveShadow = true;
+    scene.add(road);
+
+    for (const x of [-9.3, 9.3]) {
+      const edge = new THREE.Mesh(
+        new THREE.BoxGeometry(0.35, 0.08, 180),
+        material(0xffffff)
+      );
+      edge.position.set(x, 0.1, -65);
+      scene.add(edge);
+    }
+
+    // Faixas centrais
+    const roadLines = [];
+    for (const x of [-3, 3]) {
+      for (let i = 0; i < 14; i++) {
+        const line = new THREE.Mesh(
+          new THREE.BoxGeometry(0.13, 0.035, 5),
+          material(0xf4f1da)
+        );
+        line.position.set(x, 0.105, 10 - i * 12);
+        scene.add(line);
+        roadLines.push(line);
+      }
+    }
+
+    function makeCar(color, isPlayer = false) {
+      const car = new THREE.Group();
+      const paint = material(color);
+      const dark = material(0x15202a);
+      const glass = new THREE.MeshStandardMaterial({
+        color: 0x91d5ed,
+        metalness: 0.25,
+        roughness: 0.2
+      });
+
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(2, 0.65, 3.8),
+        paint
+      );
+      body.position.y = 0.72;
+      body.castShadow = true;
+      car.add(body);
+
+      const cabin = new THREE.Mesh(
+        new THREE.BoxGeometry(1.45, 0.72, 1.8),
+        glass
+      );
+      cabin.position.set(0, 1.35, -0.2);
+      cabin.castShadow = true;
+      car.add(cabin);
+
+      for (const z of [-1.95, 1.95]) {
+        const bumper = new THREE.Mesh(
+          new THREE.BoxGeometry(2.05, 0.2, 0.18),
+          dark
+        );
+        bumper.position.set(0, 0.5, z);
+        car.add(bumper);
+      }
+
+      for (const x of [-1.05, 1.05]) {
+        for (const z of [-1.25, 1.25]) {
+          const wheel = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.42, 0.42, 0.25, 16),
+            dark
+          );
+          wheel.rotation.z = Math.PI / 2;
+          wheel.position.set(x, 0.47, z);
+          wheel.castShadow = true;
+          car.add(wheel);
+        }
+      }
+
+      const lampMaterial = new THREE.MeshBasicMaterial({
+        color: isPlayer ? 0xff3333 : 0xfff3bb
+      });
+
+      for (const x of [-0.65, 0.65]) {
+        const lamp = new THREE.Mesh(
+          new THREE.BoxGeometry(0.42, 0.18, 0.08),
+          lampMaterial
+        );
+        lamp.position.set(x, 0.83, isPlayer ? 1.94 : -1.94);
+        car.add(lamp);
+      }
+
+      return car;
+    }
+
+    const player = makeCar(0x16c784, true);
+    player.position.set(0, 0, 5);
+    scene.add(player);
+
+    const lanes = [-3, 0, 3];
+    const traffic = [];
+    const trafficColors = [0xe74c3c, 0xf1c40f, 0x3498db, 0x9b59b6, 0xf5f5f5];
+
+    for (let i = 0; i < 5; i++) {
+      const car = makeCar(trafficColors[i % trafficColors.length]);
+      car.position.set(
+        lanes[Math.floor(Math.random() * lanes.length)],
+        0,
+        -25 - i * 28
+      );
+      car.rotation.y = Math.PI;
+      scene.add(car);
+      traffic.push(car);
+    }
+
+    // Carros que entram pela lateral/acostamento
+    const shoulderTraffic = [];
+    const shoulderColors = [0xff8c42, 0x35a7ff, 0xf4f4f4];
+
+    function resetShoulderCar(car, index) {
+      const side = Math.random() < 0.5 ? -1 : 1;
+      car.userData.targetX = side * 5.5;
+      car.position.set(side * 11, 0, -90 - index * 42);
+      car.rotation.y = Math.PI;
+    }
+
+    for (let i = 0; i < 3; i++) {
+      const car = makeCar(shoulderColors[i]);
+      resetShoulderCar(car, i);
+      scene.add(car);
+      shoulderTraffic.push(car);
+    }
+
+    // Árvores nas margens
+    const scenery = [];
+    for (let i = 0; i < 24; i++) {
+      for (const side of [-1, 1]) {
+        const tree = new THREE.Group();
+
+        const trunk = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.18, 0.25, 1.4, 7),
+          material(0x704327)
+        );
+        trunk.position.y = 0.7;
+
+        const crown = new THREE.Mesh(
+          new THREE.ConeGeometry(1.15, 2.8, 8),
+          material(0x1e713e)
+        );
+        crown.position.y = 2.4;
+
+        trunk.castShadow = true;
+        crown.castShadow = true;
+        tree.add(trunk, crown);
+        tree.position.set(side * (12 + Math.random() * 7), 0, -i * 9);
+        scene.add(tree);
+        scenery.push(tree);
+      }
+    }
+
+    const scoreElement = document.querySelector("#score");
+    const speedElement = document.querySelector("#speed");
+    const overlay = document.querySelector("#overlay");
+    const titleElement = document.querySelector("#title");
+    const messageElement = document.querySelector("#message");
+    const startButton = document.querySelector("#start");
+    const soundButton = document.querySelector("#sound-toggle");
+
+    const keys = new Set();
+    let running = false;
+    let distance = 0;
+    let speed = 34;
+    let lastTime = performance.now();
+
+    // Som gerado pelo navegador, sem arquivos externos
+    let audioContext = null;
+    let engineOscillator = null;
+    let engineGain = null;
+    let soundEnabled = true;
+
+    function startAudio() {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass || !soundEnabled) return;
+
+      audioContext ??= new AudioContextClass();
+
+      if (audioContext.state === "suspended") {
+        audioContext.resume();
+      }
+
+      if (!engineOscillator) {
+        engineOscillator = audioContext.createOscillator();
+        engineGain = audioContext.createGain();
+
+        engineOscillator.type = "sawtooth";
+        engineOscillator.frequency.value = 75;
+        engineGain.gain.value = 0;
+
+        engineOscillator.connect(engineGain);
+        engineGain.connect(audioContext.destination);
+        engineOscillator.start();
+      }
+    }
+
+    function updateEngineSound(currentSpeed) {
+      if (!audioContext || !engineGain || !engineOscillator) return;
+
+      engineOscillator.frequency.setTargetAtTime(
+        65 + currentSpeed * 1.7,
+        audioContext.currentTime,
+        0.08
+      );
+
+      engineGain.gain.setTargetAtTime(
+        running && soundEnabled ? 0.035 : 0,
+        audioContext.currentTime,
+        0.08
+      );
+    }
+
+    function playCrashSound() {
+      if (!soundEnabled || !audioContext) return;
+
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      const now = audioContext.currentTime;
+
+      oscillator.type = "sawtooth";
+      oscillator.frequency.setValueAtTime(150, now);
+      oscillator.frequency.exponentialRampToValueAtTime(45, now + 0.35);
+
+      gain.gain.setValueAtTime(0.3, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.36);
+    }
+
+    soundButton.addEventListener("click", () => {
+      soundEnabled = !soundEnabled;
+      soundButton.textContent = soundEnabled ? "🔊 Som" : "🔇 Sem som";
+
+      if (soundEnabled) {
+        startAudio();
+      } else {
+        updateEngineSound(0);
+      }
+    });
+
+    function clearControls() {
+      keys.clear();
+      document.querySelectorAll(".control.pressed").forEach(button => {
+        button.classList.remove("pressed");
+      });
+    }
+
+    function startGame() {
+      startAudio();
+      clearControls();
+
+      distance = 0;
+      speed = 34;
+      player.position.x = 0;
+      player.rotation.z = 0;
+
+      traffic.forEach((car, i) => {
+        car.position.x = lanes[Math.floor(Math.random() * lanes.length)];
+        car.position.z = -30 - i * 30;
+        car.rotation.y = Math.PI;
+      });
+
+      shoulderTraffic.forEach((car, i) => resetShoulderCar(car, i));
+
+      titleElement.textContent = "Corrida 3D";
+      startButton.textContent = "Começar corrida";
+      overlay.style.display = "none";
+      running = true;
+      lastTime = performance.now();
+    }
+
+    function endGame() {
+      if (!running) return;
+
+      running = false;
+      clearControls();
+      playCrashSound();
+      updateEngineSound(0);
+
+      titleElement.textContent = "Fim de jogo!";
+      messageElement.innerHTML =
+        `Você percorreu <strong>${Math.floor(distance)} m</strong>.<br>` +
+        "Toque no botão para jogar novamente.";
+      startButton.textContent = "Jogar novamente";
+      overlay.style.display = "grid";
+    }
+
+    startButton.addEventListener("click", startGame);
+
+    // Teclado para computador
+    window.addEventListener("keydown", event => {
+      const key = event.key.toLowerCase();
+
+      if ([
+        "arrowleft", "arrowright", "arrowup", "arrowdown", " "
+      ].includes(key)) {
+        event.preventDefault();
+      }
+
+      keys.add(key);
+
+      if (!running && key === " ") {
+        startGame();
+      }
+    });
+
+    window.addEventListener("keyup", event => {
+      keys.delete(event.key.toLowerCase());
+    });
+
+    // Botões de toque para celular e tablet
+    document.querySelectorAll(".control").forEach(button => {
+      const key = button.dataset.key;
+
+      button.addEventListener("pointerdown", event => {
+        event.preventDefault();
+        keys.add(key);
+        button.classList.add("pressed");
+        button.setPointerCapture(event.pointerId);
+      });
+
+      const release = event => {
+        if (event) event.preventDefault();
+        keys.delete(key);
+        button.classList.remove("pressed");
+      };
+
+      button.addEventListener("pointerup", release);
+      button.addEventListener("pointercancel", release);
+      button.addEventListener("lostpointercapture", release);
+    });
+
+    window.addEventListener("blur", clearControls);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) clearControls();
+    });
+
+    function checkCollision(car) {
+      return (
+        Math.abs(car.position.z - player.position.z) < 3.5 &&
+        Math.abs(car.position.x - player.position.x) < 2.2
+      );
+    }
+
+    function animate(now) {
+      requestAnimationFrame(animate);
+
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+
+      if (running) {
+        const accelerating =
+          keys.has("arrowup") || keys.has("w");
+        const braking =
+          keys.has("arrowdown") || keys.has("s");
+
+        if (accelerating) {
+          speed = Math.min(100, speed + dt * 35);
+        } else {
+          speed = Math.max(34, speed - dt * 10);
+        }
+
+        const currentSpeed = braking ? speed * 0.52 : speed;
+        const movement = currentSpeed * dt;
+        distance += currentSpeed * dt * 0.45;
+
+        const left = keys.has("arrowleft") || keys.has("a");
+        const right = keys.has("arrowright") || keys.has("d");
+
+        player.position.x += ((right ? 1 : 0) - (left ? 1 : 0)) * dt * 10;
+        player.position.x = THREE.MathUtils.clamp(player.position.x, -11.2, 11.2);
+
+        player.rotation.z = THREE.MathUtils.lerp(
+          player.rotation.z,
+          left ? 0.09 : right ? -0.09 : 0,
+          dt * 7
+        );
+
+        roadLines.forEach(line => {
+          line.position.z += movement;
+          if (line.position.z > 14) line.position.z -= 168;
+        });
+
+        scenery.forEach(tree => {
+          tree.position.z += movement;
+          if (tree.position.z > 18) tree.position.z -= 216;
+        });
+
+        for (const car of traffic) {
+          car.position.z += movement;
+
+          if (car.position.z > 12) {
+            car.position.z = -100 - Math.random() * 45;
+            car.position.x = lanes[Math.floor(Math.random() * lanes.length)];
+          }
+
+          if (checkCollision(car)) {
+            endGame();
+            break;
+          }
+        }
+
+        if (running) {
+          for (const car of shoulderTraffic) {
+            car.position.z += movement;
+
+            // O carro sai do acostamento em direção à pista
+            const difference = car.userData.targetX - car.position.x;
+            const step = Math.min(Math.abs(difference), 3.2 * dt);
+            car.position.x += Math.sign(difference) * step;
+
+            if (car.position.z > 12) {
+              resetShoulderCar(car, Math.floor(Math.random() * 3));
+            }
+
+            if (checkCollision(car)) {
+              endGame();
+              break;
+            }
+          }
+        }
+
+        scoreElement.textContent = Math.floor(distance);
+        speedElement.textContent = Math.floor(currentSpeed * 3.6);
+        updateEngineSound(currentSpeed);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    requestAnimationFrame(animate);
+
+    window.addEventListener("resize", () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    });
+  </script>
+</body>
+</html>
+```
