@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogos Online - Arcaide</title>
+      <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, sans-serif;
+      background: #0b1020;
+      color: #eef2ff;
+    }
+
+    * { box-sizing: border-box; }
+
+  
+
+    main { width: min(800px, 100%); }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.4rem, 5vw, 2rem);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .stats {
+      display: flex;
+      gap: clamp(10px, 4vw, 24px);
+      font-weight: 700;
+      color: #cbd5e1;
+    }
+
+    .stats span { white-space: nowrap; }
+    .stats b { color: #fff; }
+
+    .game-frame {
+      overflow: hidden;
+      border: 1px solid #39466a;
+      border-radius: 14px;
+      background:
+        radial-gradient(ellipse at 50% 0%, #1b2850 0%, #0b1020 62%);
+      box-shadow: 0 20px 70px #0008, 0 0 30px #5b8cff18;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      touch-action: none;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    button {
+      border: 1px solid #475569;
+      border-radius: 9px;
+      padding: 10px 16px;
+      color: #f8fafc;
+      background: #1e293b;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .12s, background .12s;
+    }
+
+    button:hover { background: #334155; }
+    button:active { transform: scale(.97); }
+
+    #start {
+      border-color: #60a5fa;
+      background: #2563eb;
+    }
+
+    #start:hover { background: #3b82f6; }
+
+    .help {
+      margin: 12px 0 0;
+      color: #aab6cc;
+      font-size: .92rem;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    kbd {
+      border: 1px solid #526079;
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: #e2e8f0;
+      background: #1e293b;
+      font: inherit;
+      font-size: .85em;
+    }
+  </style>
+
+  <main>
+    <header>
+      <h1>Breakout</h1>
+      <div class="stats" aria-live="polite">
+        <span>Pontos: <b id="score">0</b></span>
+        <span>Vidas: <b id="lives">3</b></span>
+      </div>
+    </header>
+
+    <div class="game-frame">
+      <canvas id="game" width="800" height="520"
+              aria-label="Jogo Breakout"></canvas>
+    </div>
+
+    <div class="controls">
+      <button id="start">Iniciar</button>
+      <button id="pause">Pausar</button>
+      <button id="sound" aria-pressed="true">Som: ligado</button>
+      <button id="reset">Reiniciar</button>
+    </div>
+
+    <p class="help">
+      Mova a barra com o mouse, toque ou as teclas
+      <kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd>.
+      <kbd>Espaço</kbd> inicia ou pausa.
+    </p>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const canvas = document.querySelector("#game");
+      const ctx = canvas.getContext("2d");
+      const scoreEl = document.querySelector("#score");
+      const livesEl = document.querySelector("#lives");
+      const startBtn = document.querySelector("#start");
+      const pauseBtn = document.querySelector("#pause");
+      const soundBtn = document.querySelector("#sound");
+      const resetBtn = document.querySelector("#reset");
+
+      const W = canvas.width;
+      const H = canvas.height;
+      const paddle = { x: W / 2 - 55, y: H - 38, w: 110, h: 13, speed: 8 };
+      const ball = { x: W / 2, y: paddle.y - 11, r: 8, vx: 4, vy: -5 };
+
+      const colors = ["#fb7185", "#f97316", "#facc15", "#4ade80", "#38bdf8"];
+      const brickConfig = { rows: 5, cols: 10, w: 66, h: 22, gap: 10, top: 66 };
+      const brickWidth = brickConfig.cols * brickConfig.w +
+                         (brickConfig.cols - 1) * brickConfig.gap;
+      const brickLeft = (W - brickWidth) / 2;
+
+      let bricks = [];
+      let score = 0;
+      let lives = 3;
+      let running = false;
+      let paused = false;
+      let ended = false;
+      let soundOn = true;
+      let leftDown = false;
+      let rightDown = false;
+      let audioContext = null;
+      let lastTime = 0;
+
+      function makeBricks() {
+        bricks = [];
+        for (let row = 0; row < brickConfig.rows; row++) {
+          for (let col = 0; col < brickConfig.cols; col++) {
+            bricks.push({
+              x: brickLeft + col * (brickConfig.w + brickConfig.gap),
+              y: brickConfig.top + row * (brickConfig.h + brickConfig.gap),
+              w: brickConfig.w,
+              h: brickConfig.h,
+              color: colors[row],
+              alive: true
+            });
+          }
+        }
+      }
+
+      function setBallOnPaddle() {
+        ball.x = paddle.x + paddle.w / 2;
+        ball.y = paddle.y - ball.r - 2;
+        ball.vx = 4 * (Math.random() < .5 ? -1 : 1);
+        ball.vy = -5;
+      }
+
+      function updateStats() {
+        scoreEl.textContent = score;
+        livesEl.textContent = lives;
+      }
+
+      function startGame() {
+        if (ended) resetGame();
+        running = true;
+        paused = false;
+        startBtn.textContent = "Continuar";
+        playSound(480, .07, "sine", .035);
+      }
+
+      function togglePause() {
+        if (ended) return;
+        if (!running) {
+          startGame();
+        } else {
+          running = false;
+          paused = true;
+          startBtn.textContent = "Continuar";
+        }
+      }
+
+      function resetGame() {
+        score = 0;
+        lives = 3;
+        running = false;
+        paused = false;
+        ended = false;
+        paddle.x = W / 2 - paddle.w / 2;
+        makeBricks();
+        setBallOnPaddle();
+        updateStats();
+        startBtn.textContent = "Iniciar";
+      }
+
+      function playSound(frequency, duration = .08, type = "sine", volume = .045) {
+        if (!soundOn) return;
+        try {
+          audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+          if (audioContext.state === "suspended") audioContext.resume();
+          const oscillator = audioContext.createOscillator();
+          const gain = audioContext.createGain();
+          oscillator.type = type;
+          oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+          gain.gain.setValueAtTime(volume, audioContext.currentTime);
+          gain.gain.exponentialRampToValueAtTime(.001, audioContext.currentTime + duration);
+          oscillator.connect(gain);
+          gain.connect(audioContext.destination);
+          oscillator.start();
+          oscillator.stop(audioContext.currentTime + duration);
+        } catch (_) {
+          // O jogo continua funcionando mesmo se o áudio não estiver disponível.
+        }
+      }
+
+      function roundRect(x, y, w, h, radius) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, radius);
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, W, H);
+
+        const background = ctx.createLinearGradient(0, 0, 0, H);
+        background.addColorStop(0, "#101a32");
+        background.addColorStop(1, "#080d19");
+        ctx.fillStyle = background;
+        ctx.fillRect(0, 0, W, H);
+
+        // Brilhos decorativos discretos.
+        ctx.fillStyle = "#8bbcff08";
+        for (let i = 0; i < 24; i++) {
+          const x = (i * 137) % W;
+          const y = (i * 79) % H;
+          ctx.fillRect(x, y, 2, 2);
+        }
+
+        for (const brick of bricks) {
+          if (!brick.alive) continue;
+          ctx.shadowColor = brick.color;
+          ctx.shadowBlur = 12;
+          roundRect(brick.x, brick.y, brick.w, brick.h, 5);
+          ctx.fillStyle = brick.color;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = "#ffffff38";
+          roundRect(brick.x + 4, brick.y + 3, brick.w - 8, 4, 2);
+          ctx.fill();
+        }
+
+        ctx.shadowColor = "#60a5fa";
+        ctx.shadowBlur = 18;
+        roundRect(paddle.x, paddle.y, paddle.w, paddle.h, 7);
+        ctx.fillStyle = "#7dd3fc";
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        ctx.shadowColor = "#fff";
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+        ctx.fillStyle = "#fff";
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        if (!running) {
+          let message = "Clique em Iniciar";
+          let submessage = "Quebre todos os blocos!";
+          if (paused) {
+            message = "Pausado";
+            submessage = "Clique em Continuar ou pressione Espaço";
+          } else if (ended) {
+            message = bricks.every(b => !b.alive) ? "Você venceu!" : "Fim de jogo";
+            submessage = "Clique em Reiniciar para jogar novamente";
+          }
+
+          ctx.fillStyle = "#050914b8";
+          ctx.fillRect(0, 0, W, H);
+          ctx.textAlign = "center";
+          ctx.fillStyle = "#f8fafc";
+          ctx.font = "700 34px system-ui, sans-serif";
+          ctx.fillText(message, W / 2, H / 2 - 8);
+          ctx.fillStyle = "#cbd5e1";
+          ctx.font = "16px system-ui, sans-serif";
+          ctx.fillText(submessage, W / 2, H / 2 + 25);
+        }
+      }
+
+      function update(dt) {
+        if (!running) return;
+
+        if (leftDown) paddle.x -= paddle.speed * dt;
+        if (rightDown) paddle.x += paddle.speed * dt;
+        paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
+
+        ball.x += ball.vx * dt;
+        ball.y += ball.vy * dt;
+
+        if (ball.x - ball.r < 0) {
+          ball.x = ball.r;
+          ball.vx = Math.abs(ball.vx);
+          playSound(300);
+        } else if (ball.x + ball.r > W) {
+          ball.x = W - ball.r;
+          ball.vx = -Math.abs(ball.vx);
+          playSound(300);
+        }
+
+        if (ball.y - ball.r < 0) {
+          ball.y = ball.r;
+          ball.vy = Math.abs(ball.vy);
+          playSound(360);
+        }
+
+        // Colisão com a barra: o ponto de impacto muda o ângulo da bola.
+        if (ball.vy > 0 &&
+            ball.y + ball.r >= paddle.y &&
+            ball.y - ball.r <= paddle.y + paddle.h &&
+            ball.x >= paddle.x &&
+            ball.x <= paddle.x + paddle.w) {
+          const hit = (ball.x - (paddle.x + paddle.w / 2)) / (paddle.w / 2);
+          const speed = Math.min(9, Math.hypot(ball.vx, ball.vy) + .12);
+          const angle = hit * 1.05;
+          ball.vx = speed * Math.sin(angle);
+          ball.vy = -Math.abs(speed * Math.cos(angle));
+          ball.y = paddle.y - ball.r;
+          playSound(520, .06, "triangle");
+        }
+
+        // Colisão bola/blocos.
+        for (const brick of bricks) {
+          if (!brick.alive) continue;
+
+          const nearestX = Math.max(brick.x, Math.min(ball.x, brick.x + brick.w));
+          const nearestY = Math.max(brick.y, Math.min(ball.y, brick.y + brick.h));
+          const dx = ball.x - nearestX;
+          const dy = ball.y - nearestY;
+
+          if (dx * dx + dy * dy <= ball.r * ball.r) {
+            brick.alive = false;
+            score += 10;
+            updateStats();
+
+            if (Math.abs(dx) > Math.abs(dy)) ball.vx *= -1;
+            else ball.vy *= -1;
+
+            playSound(650 + Math.random() * 250, .07, "square", .025);
+            break;
+          }
+        }
+
+        if (bricks.every(brick => !brick.alive)) {
+          running = false;
+          ended = true;
+          startBtn.textContent = "Jogar novamente";
+          playSound(880, .22, "sine", .06);
+          return;
+        }
+
+        if (ball.y - ball.r > H) {
+          lives--;
+          updateStats();
+          playSound(180, .2, "sawtooth", .035);
+
+          if (lives <= 0) {
+            running = false;
+            ended = true;
+            startBtn.textContent = "Jogar novamente";
+          } else {
+            setBallOnPaddle();
+          }
+        }
+      }
+
+      function frame(time) {
+        const dt = lastTime ? Math.min((time - lastTime) / 16.67, 2) : 1;
+        lastTime = time;
+        update(dt);
+        draw();
+        requestAnimationFrame(frame);
+      }
+
+      function movePaddleFromPointer(event) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = W / rect.width;
+        paddle.x = (event.clientX - rect.left) * scaleX - paddle.w / 2;
+        paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
+        if (!running) setBallOnPaddle();
+      }
+
+      canvas.addEventListener("pointermove", movePaddleFromPointer);
+      canvas.addEventListener("pointerdown", event => {
+        movePaddleFromPointer(event);
+        if (!running && !ended) startGame();
+      });
+
+      document.addEventListener("keydown", event => {
+        const key = event.key.toLowerCase();
+        if (["arrowleft", "arrowright", " "].includes(key)) event.preventDefault();
+        if (key === "arrowleft" || key === "a") leftDown = true;
+        if (key === "arrowright" || key === "d") rightDown = true;
+        if (key === " " && !event.repeat) togglePause();
+      });
+
+      document.addEventListener("keyup", event => {
+        const key = event.key.toLowerCase();
+        if (key === "arrowleft" || key === "a") leftDown = false;
+        if (key === "arrowright" || key === "d") rightDown = false;
+      });
+
+      startBtn.addEventListener("click", startGame);
+      pauseBtn.addEventListener("click", togglePause);
+      resetBtn.addEventListener("click", resetGame);
+
+      soundBtn.addEventListener("click", () => {
+        soundOn = !soundOn;
+        soundBtn.textContent = `Som: ${soundOn ? "ligado" : "desligado"}`;
+        soundBtn.setAttribute("aria-pressed", String(soundOn));
+        if (soundOn) playSound(600, .08);
+      });
+
+      makeBricks();
+      setBallOnPaddle();
+      updateStats();
+      requestAnimationFrame(frame);
+    })();
+  </script>
+  
+  
+  </body>
+  
+  
+  </html>
+  
+  
+  
+    
