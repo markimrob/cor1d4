@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DOOM — Inferno de Bolso</title>
+
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #090807;
+        color: #eee;
+        font: 16px system-ui, Arial;
+      }
+
+      canvas {
+        display: block;
+      }
+
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        text-shadow: 2px 2px #000;
+      }
+
+      #top {
+        position: absolute;
+        top: 14px;
+        left: 16px;
+        right: 16px;
+        display: flex;
+        justify-content: space-between;
+        font-weight: 900;
+        font-size: 18px;
+      }
+
+      .badge {
+        background: #170e0dcc;
+        border: 1px solid #a33;
+        padding: 8px 12px;
+      }
+
+      #cross {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 25px;
+        color: #ffdf9c;
+      }
+
+      #bottom {
+        position: absolute;
+        bottom: 18px;
+        left: 16px;
+        right: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        font-weight: 900;
+      }
+
+      .bar {
+        width: 170px;
+        height: 13px;
+        background: #300;
+        border: 1px solid #ddd;
+        margin-top: 5px;
+      }
+
+      .fill {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(90deg, #e22, #f90);
+      }
+
+      #msg {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #080706bb;
+        text-align: center;
+        padding: 24px;
+        z-index: 2;
+      }
+
+      #card {
+        max-width: 550px;
+        background: #160d0bf2;
+        border: 2px solid #a32;
+        padding: 28px;
+        box-shadow: 0 0 60px #b21010;
+      }
+
+      h1 {
+        color: #f33;
+        font-size: clamp(38px, 8vw, 76px);
+        line-height: 0.9;
+        margin: 0 0 14px;
+        text-shadow: 4px 4px #400;
+      }
+
+      button {
+        font: 900 18px inherit;
+        color: white;
+        background: #a21;
+        border: 0;
+        padding: 13px 24px;
+        cursor: pointer;
+      }
+
+      #help {
+        font-size: 14px;
+        color: #ccc;
+        line-height: 1.6;
+      }
+
+      #toast {
+        position: fixed;
+        top: 23%;
+        left: 50%;
+        transform: translateX(-50%);
+        font-weight: 900;
+        color: #ffdf9c;
+        font-size: 26px;
+        display: none;
+      }
+
+/* A base circular externa do joystick */
+  #joystick-base {
+    position: absolute;
+    width: 120px;
+    height: 120px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: none; /* Só aparece quando o dedo toca a tela */
+    pointer-events: none;
+  }
+  /* O pino interno que o dedo move */
+  #joystick-stick {
+    position: absolute;
+    top: 35px;
+    left: 35px;
+    width: 50px;
+    height: 50px;
+    background: white;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+    </style>
+
+    <script type="importmap">
+      { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+    </script>
+  </head>
+
+  <body>
+    <div id="hud">
+      <div id="top">
+        <div class="badge">INFERNO DE BOLSO</div>
+        <div class="badge">ABATES: <span id="kills">0</span></div>
+      </div>
+
+      <div id="cross">+</div>
+
+      <div id="bottom">
+        <div class="badge">
+          VIDA <span id="hp">100</span>
+          <div class="bar">
+            <div class="fill" id="health"></div>
+          </div>
+        </div>
+
+        <div class="badge">MUNIÇÃO: ∞</div>
+      </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <div id="msg">
+      <div id="card">
+        <h1>DOOM<br />INFERNO</h1>
+        <p>Uma pequena arena 3D para sobreviver às hordas.</p>
+        <button id="start">ENTRAR NO INFERNO</button>
+        <p id="help">
+          WASD mover · Mouse mirar · Clique atirar · Shift correr · Esc pausar<br />
+          Feito em um único HTML com Three.js e áudio sintetizado.
+        </p>
+      </div>
+    </div>
+    <div id="joystick-base">
+  <div id="joystick-stick"></div>
+    </div>
+
+    <script type="module">
+      import * as THREE from 'three';
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x17100f);
+      scene.fog = new THREE.Fog(0x17100f, 10, 34);
+
+      const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 80);
+      camera.position.set(2, 1.65, 2);
+      camera.rotation.order = 'YXZ';
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.appendChild(renderer.domElement);
+
+      scene.add(new THREE.HemisphereLight(0xaaaacc, 0x35120b, 1.4));
+      const lamp = new THREE.PointLight(0xff5324, 48, 28, 2);
+      lamp.position.set(7, 4, 7);
+      scene.add(lamp);
+
+      const map = [
+        '################',
+        '#..............#',
+        '#..##..........#',
+        '#..............#',
+        '#......##......#',
+        '#..............#',
+        '#...#..........#',
+        '#...#.....##...#',
+        '#..............#',
+        '#......#.......#',
+        '#......#.......#',
+        '#..............#',
+        '#..##..........#',
+        '#..............#',
+        '#..............#',
+        '################'
+      ];
+
+      const wallMat = new THREE.MeshStandardMaterial({ color: 0x684238, roughness: 1 });
+      const floorMat = new THREE.MeshStandardMaterial({ color: 0x34302b, roughness: 1 });
+
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(16, 16), floorMat);
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set(7.5, 0, 7.5);
+      floor.receiveShadow = true;
+      scene.add(floor);
+
+      const ceil = new THREE.Mesh(
+        new THREE.PlaneGeometry(16, 16),
+        new THREE.MeshStandardMaterial({ color: 0x211b1a, side: THREE.DoubleSide })
+      );
+      ceil.rotation.x = Math.PI / 2;
+      ceil.position.set(7.5, 4, 7.5);
+      scene.add(ceil);
+
+      for (let z = 0; z < 16; z++) {
+        for (let x = 0; x < 16; x++) {
+          if (map[z][x] === '#') {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(1, 4, 1), wallMat);
+            m.position.set(x, 2, z);
+            m.castShadow = true;
+            m.receiveShadow = true;
+            scene.add(m);
+          }
+        }
+      }
+
+      // Tochas e detalhes luminosos
+      for (const [x, z] of [[4, 2], [11, 4], [2, 9], [12, 12]]) {
+        const l = new THREE.PointLight(0xff3415, 17, 8, 2);
+        l.position.set(x, 2.7, z);
+        scene.add(l);
+
+        const orb = new THREE.Mesh(
+          new THREE.SphereGeometry(0.12, 8, 8),
+          new THREE.MeshBasicMaterial({ color: 0xff4b18 })
+        );
+        orb.position.copy(l.position);
+        scene.add(orb);
+      }
+
+      function makeDemon(x, z) {
+        const g = new THREE.Group();
+        const red = new THREE.MeshStandardMaterial({ color: 0x9d251a, roughness: 0.8 });
+        const dark = new THREE.MeshStandardMaterial({ color: 0x34110f });
+        const eye = new THREE.MeshBasicMaterial({ color: 0xffd138 });
+
+        const body = new THREE.Mesh(new THREE.SphereGeometry(0.43, 12, 10), red);
+        body.scale.set(0.8, 1.1, 0.65);
+        body.position.y = 0.62;
+        g.add(body);
+
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.29, 12, 10), red);
+        head.position.set(0, 1.15, 0);
+        g.add(head);
+
+        for (const a of [-1, 1]) {
+          const e = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), eye);
+          e.position.set(a * 0.12, 1.19, -0.24);
+          g.add(e);
+
+          const horn = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.28, 7), dark);
+          horn.position.set(a * 0.2, 1.49, 0);
+          horn.rotation.z = a * 0.3;
+          g.add(horn);
+        }
+
+        const legs = [];
+        for (const a of [-1, 1]) {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.42, 0.19), dark);
+          leg.position.set(a * 0.17, 0.2, 0);
+          g.add(leg);
+          legs.push(leg);
+        }
+
+        g.position.set(x, 0, z);
+        g.traverse((o) => {
+          if (o.isMesh) o.castShadow = true;
+        });
+        scene.add(g);
+
+        return { g, hp: 3, legs, phase: Math.random() * 8 };
+      }
+
+      const demons = [];
+      [[12, 2], [13, 8], [9, 13], [3, 13], [7, 6], [11, 10], [2, 5], [5, 11]].forEach((p) => {
+        demons.push(makeDemon(...p));
+      });
+
+      let hp = 100;
+      let kills = 0;
+      let started = false;
+      let locked = false;
+      let last = performance.now();
+      let hurtTimer = 0;
+      const keys = {};
+      const ray = new THREE.Raycaster();
+      const audio = new (window.AudioContext || window.webkitAudioContext)();
+
+      function tone(freq, dur, type = 'square', vol = 0.06, slide = 0) {
+        if (audio.state === 'suspended') audio.resume();
+
+        const o = audio.createOscillator();
+        const g = audio.createGain();
+        o.type = type;
+        o.frequency.setValueAtTime(freq, audio.currentTime);
+
+        if (slide) {
+          o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), audio.currentTime + dur);
+        }
+
+        g.gain.setValueAtTime(vol, audio.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + dur);
+
+        o.connect(g);
+        g.connect(audio.destination);
+
+        o.start();
+        o.stop(audio.currentTime + dur);
+      }
+
+      function soundShot() {
+        tone(115, 0.16, 'sawtooth', 0.11, -75);
+        tone(48, 0.12, 'square', 0.08, -20);
+      }
+
+      function soundHit() {
+        tone(180, 0.12, 'square', 0.05, -100);
+      }
+
+      function soundHurt() {
+        tone(90, 0.3, 'sawtooth', 0.1, -55);
+      }
+
+      function blocked(x, z) {
+        const a = Math.floor(x + 0.5);
+        const b = Math.floor(z + 0.5);
+        return !map[b] || map[b][a] !== '#';
+      }
+
+      function show(text) {
+        const t = document.querySelector('#toast');
+        t.textContent = text;
+        t.style.display = 'block';
+        setTimeout(() => (t.style.display = 'none'), 1200);
+      }
+
+      function shoot() {
+        if (!started || !locked) return;
+
+        soundShot();
+        ray.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+        const targets = [];
+        demons.forEach((d) => {
+          if (d.hp > 0) {
+            d.g.traverse((o) => {
+              if (o.isMesh) targets.push(o);
+            });
+          }
+        });
+
+        const hit = ray.intersectObjects(targets, false)[0];
+        if (hit && hit.distance < 18) {
+          const d = demons.find(
+            (q) => q.g === hit.object.parent || q.g === hit.object.parent?.parent
+          );
+
+          if (d) {
+            d.hp--;
+            soundHit();
+
+            if (d.hp <= 0) {
+              scene.remove(d.g);
+              kills++;
+              document.querySelector('#kills').textContent = kills;
+
+              if (kills === demons.length) {
+                show('ARENA LIMPA! VOCÊ SOBREVIVEU!');
+              }
+            }
+          }
+        }
+      }
+
+      function start() {
+        started = true;
+        document.querySelector('#msg').style.display = 'none';
+        renderer.domElement.requestPointerLock();
+      }
+
+      document.querySelector('#start').addEventListener('click', start);
+
+      renderer.domElement.addEventListener('click', () => {
+        if (started && !locked) {
+          renderer.domElement.requestPointerLock();
+        } else {
+          shoot();
+        }
+      });
+
+      document.addEventListener('pointerlockchange', () => {
+        locked = document.pointerLockElement === renderer.domElement;
+        if (started && !locked) {
+          document.querySelector('#msg').style.display = 'grid';
+        }
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (locked) {
+          camera.rotation.y -= e.movementX * 0.0022;
+          camera.rotation.x -= e.movementY * 0.0022;
+          camera.rotation.x = Math.max(-1.45, Math.min(1.45, camera.rotation.x));
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        keys[e.code] = true;
+        if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) {
+          e.preventDefault();
+        }
+      });
+
+      document.addEventListener('keyup', (e) => {
+        keys[e.code] = false;
+      });
+
+      function loop(now) {
+        requestAnimationFrame(loop);
+
+        const dt = Math.min((now - last) / 1000, 0.05);
+        last = now;
+
+        if (locked) {
+          let f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
+          let s = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+          const speed = (keys.ShiftLeft ? 6 : 4) * dt;
+
+          if (f || s) {
+            const len = Math.hypot(f, s);
+            f /= len;
+            s /= len;
+
+            const dx = (-Math.sin(camera.rotation.y) * f + Math.cos(camera.rotation.y) * s) * speed;
+            const dz = (-Math.cos(camera.rotation.y) * f - Math.sin(camera.rotation.y) * s) * speed;
+
+            if (blocked(camera.position.x + dx, camera.position.z)) camera.position.x += dx;
+            if (blocked(camera.position.x, camera.position.z + dz)) camera.position.z += dz;
+          }
+
+          for (const d of demons) {
+            if (d.hp <= 0) continue;
+
+            d.phase += dt * 8;
+            d.legs.forEach((l, i) => {
+              l.rotation.x = Math.sin(d.phase + i * Math.PI) * 0.5;
+            });
+
+            const dx = camera.position.x - d.g.position.x;
+            const dz = camera.position.z - d.g.position.z;
+            const dist = Math.hypot(dx, dz);
+            d.g.rotation.y = Math.atan2(dx, dz);
+
+            if (dist > 1.25) {
+              const sp = 1.05 * dt;
+              const nx = d.g.position.x + (dx / dist) * sp;
+              const nz = d.g.position.z + (dz / dist) * sp;
+
+              if (blocked(nx, d.g.position.z)) d.g.position.x = nx;
+              if (blocked(d.g.position.x, nz)) d.g.position.z = nz;
+            } else if (now - hurtTimer > 900) {
+              hp = Math.max(0, hp - 8);
+              hurtTimer = now;
+              document.querySelector('#hp').textContent = hp;
+              document.querySelector('#health').style.width = hp + '%';
+              soundHurt();
+
+              if (!hp) {
+                started = false;
+                document.exitPointerLock();
+                document.querySelector('#msg').style.display = 'grid';
+                document.querySelector('#card').innerHTML =
+                  '<h1>FIM DE JOGO</h1><p>Abates: ' + kills + '</p><button onclick="location.reload()">TENTAR DE NOVO</button>';
+              }
+            }
+          }
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      requestAnimationFrame(loop);
+
+      addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+    </script>
+  </body>
+</html>
