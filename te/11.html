@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>FPS - Controle Unificado</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
+        body {
+            overflow: hidden;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #1a1a2e;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #joystick-base {
+            position: absolute;
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+            display: none;
+            pointer-events: none;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(2px);
+        }
+
+        #joystick-stick {
+            position: absolute;
+            top: 35px;
+            left: 35px;
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #4ec0ff, #1a85d9);
+            border-radius: 50%;
+            pointer-events: none;
+            box-shadow: 0 4px 15px rgba(78, 192, 255, 0.4);
+            transition: transform 0.05s ease-out;
+        }
+
+        #shoot-btn {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: none;
+            pointer-events: none;
+            border: 3px solid rgba(255, 50, 50, 0.5);
+            box-shadow: 0 4px 20px rgba(255, 50, 50, 0.3);
+            backdrop-filter: blur(3px);
+            cursor: pointer;
+            transition: transform 0.05s ease-out;
+        }
+
+        #shoot-btn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50px;
+            height: 50px;
+            background: radial-gradient(circle, #ff3333 0%, #cc0000 60%, transparent 100%);
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(255, 50, 50, 0.5);
+        }
+
+        #shoot-btn:active::after {
+            transform: translate(-50%, -50%) scale(0.8);
+        }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: #00ff88;
+        }
+
+        #crosshair::before {
+            width: 4px;
+            height: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        #crosshair::after {
+            width: 30px;
+            height: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        #crosshair::before, #crosshair::after {
+            border-radius: 2px;
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }
+
+        #crosshair.active::before {
+            background: #ff0000;
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.8);
+        }
+
+        #hud {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 14px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+
+        #hud-item {
+            margin: 3px 0;
+            font-family: 'Courier New', monospace;
+        }
+
+        #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            color: white;
+            text-align: center;
+        }
+
+        #start-screen h1 {
+            font-size: 2rem;
+            margin-bottom: 20px;
+            color: #4ec0ff;
+            text-shadow: 0 0 20px rgba(78, 192, 255, 0.5);
+        }
+
+        #start-screen p {
+            max-width: 400px;
+            line-height: 1.6;
+            color: #ccc;
+        }
+
+        #start-btn {
+            margin-top: 30px;
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            background: linear-gradient(135deg, #4ec0ff, #1a85d9);
+            border: none;
+            border-radius: 30px;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 4px 20px rgba(78, 192, 255, 0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        #start-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 30px rgba(78, 192, 255, 0.6);
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="hud">
+            <div id="hud-item">FPS: 60</div>
+            <div id="hud-item" style="color: #ffaa00;">Munição: ∞</div>
+            <div id="hud-item" style="color: #ff5555;">Saúde: 100</div>
+            <div id="hud-item">Câmera: YAW: <span id="yaw-val">0</span>° PITCH: <span id="pitch-val">0</span>°</div>
+            <div id="hud-item" style="color: #4ec0ff;">Input: X: <span id="input-x">0</span> Y: <span id="input-y">0</span></div>
+        </div>
+
+        <div id="crosshair"></div>
+
+        <div id="joystick-base">
+            <div id="joystick-stick"></div>
+        </div>
+
+        <div id="shoot-btn"></div>
+
+        <div id="start-screen">
+            <h1>🎮 FPS - Controle Unificado</h1>
+            <p>Este jogo implementa os 4 módulos de controle:</p>
+            <p style="margin-top: 10px; color: #4ec0ff;">• Teclado (WASD) ou Joystick (lado esquerdo)</p>
+            <p style="margin-top: 5px;">• Mouse ou Toque livre (mira)</p>
+            <p style="margin-top: 5px;">• Botão de tiro (lado direito)</p>
+            <p style="margin-top: 5px;">• Movimento relativo à câmera</p>
+            <button id="start-btn">🎯 INICIAR JOGO</button>
+        </div>
+    </div>
+
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+    // ============================================================
+    // MÓDULO 1: ESTADO GLOBAL DOS CONTROLES
+    // ============================================================
+    const moveInput = { 
+        x: 0, 
+        y: 0 
+    };
+
+    const cameraRotation = { 
+        yaw: 0,  
+        pitch: 0 
+    };
+
+    function limitarPitch() {
+        if (cameraRotation.pitch > 89) cameraRotation.pitch = 89;
+        if (cameraRotation.pitch < -89) cameraRotation.pitch = -89;
+    }
+
+    // ============================================================
+    // MÓDULO 2: O JOYSTICK VIRTUAL (Lado Esquerdo)
+    // ============================================================
+    const joystickBase = document.getElementById('joystick-base');
+    const joystickStick = document.getElementById('joystick-stick');
+
+    let movePointerId = null; 
+    let joystickOrigin = { x: 0, y: 0 };
+    const maxRadius = 40; 
+
+    window.addEventListener('pointerdown', (e) => {
+        if (e.clientX < window.innerWidth / 2 && movePointerId === null) {
+            movePointerId = e.pointerId;
+            joystickOrigin = { x: e.clientX, y: e.clientY };
+
+            joystickBase.style.left = `${e.clientX - 60}px`;
+            joystickBase.style.top = `${e.clientY - 60}px`;
+            joystickBase.style.display = 'block';
+            joystickStick.style.transform = `translate(0px, 0px)`;
+        }
+    });
+
+    window.addEventListener('pointermove', (e) => {
+        if (e.pointerId === movePointerId) {
+            let deltaX = e.clientX - joystickOrigin.x;
+            let deltaY = e.clientY - joystickOrigin.y;
+
+            let distance = Math.hypot(deltaX, deltaY);
+            if (distance > maxRadius) {
+                let angle = Math.atan2(deltaY, deltaX);
+                deltaX = Math.cos(angle) * maxRadius;
+                deltaY = Math.sin(angle) * maxRadius;
+            }
+
+            joystickStick.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+
+            moveInput.x = deltaX / maxRadius;
+            moveInput.y = -(deltaY / maxRadius);
+        }
+    });
+
+    window.addEventListener('pointerup', (e) => {
+        if (e.pointerId === movePointerId) {
+            movePointerId = null;
+            moveInput.x = 0;
+            moveInput.y = 0;
+            joystickBase.style.display = 'none';
+        }
+    });
+
+    // ============================================================
+    // MÓDULO 3: BOTÃO DE TIRO FLUTUANTE
+    // ============================================================
+    const shootBtn = document.getElementById('shoot-btn');
+
+    let shootPointerId = null;
+    let lastShootTouch = { x: 0, y: 0 };
+    let shootOrigin = { x: 0, y: 0 };
+    let isDragging = false;
+
+    shootBtn.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        shootPointerId = e.pointerId;
+        shootOrigin = { x: e.clientX, y: e.clientY };
+        lastShootTouch = { x: e.clientX, y: e.clientY };
+        isDragging = false;
+    });
+
+    window.addEventListener('pointermove', (e) => {
+        if (e.pointerId === shootPointerId) {
+            let deltaX = e.clientX - lastShootTouch.x;
+            let deltaY = e.clientY - lastShootTouch.y;
+            lastShootTouch = { x: e.clientX, y: e.clientY };
+
+            let totalDist = Math.hypot(e.clientX - shootOrigin.x, e.clientY - shootOrigin.y);
+            if (totalDist > 8) isDragging = true;
+
+            if (isDragging) {
+                cameraRotation.yaw += deltaX * 0.8;
+                cameraRotation.pitch -= deltaY * 0.8;
+                limitarPitch();
+            }
+        }
+    });
+
+    window.addEventListener('pointerup', (e) => {
+        if (e.pointerId === shootPointerId) {
+            if (!isDragging) {
+                dispararArma();
+            }
+            shootPointerId = null;
+        }
+    });
+
+    function dispararArma() {
+        console.log("POW! Tiro disparado!");
+        // Efeito visual no crosshair
+        const crosshair = document.getElementById('crosshair');
+        crosshair.classList.add('active');
+        setTimeout(() => crosshair.classList.remove('active'), 100);
+    }
+
+    // ============================================================
+    // MÓDULO 4: MATEMÁTICA DO MOVIMENTO RELATIVO À CÂMERA
+    // ============================================================
+    let player = {
+        position: { x: 0, y: 0, z: 0 },
+        velocity: 0,
+        maxSpeed: 8,
+        yaw: 0,
+        pitch: 0
+    };
+
+    function atualizarPosicaoDoPersonagem(velocidade) {
+        if (moveInput.x === 0 && moveInput.y === 0) return;
+
+        const yawRad = cameraRotation.yaw * (Math.PI / 180);
+
+        const forwardX = Math.sin(yawRad);
+        const forwardZ = Math.cos(yawRad);
+
+        const rightX = Math.cos(yawRad);
+        const rightZ = -Math.sin(yawRad);
+
+        const moveX = (forwardX * moveInput.y) + (rightX * moveInput.x);
+        const moveZ = (forwardZ * moveInput.y) + (rightZ * moveInput.x);
+
+        player.position.x += moveX * velocidade;
+        player.position.z += moveZ * velocidade;
+    }
+
+    // ============================================================
+    // ENGINE DO JOGO
+    // ============================================================
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87CEEB);
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.6, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.getElementById('game-container').appendChild(renderer.domElement);
+
+    // Iluminação
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(50, 100, 50);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
+    directionalLight.shadow.camera.near = 0.1;
+    directionalLight.shadow.camera.far = 500;
+    directionalLight.shadow.camera.left = -100;
+    directionalLight.shadow.camera.right = 100;
+    directionalLight.shadow.camera.top = 100;
+    directionalLight.shadow.camera.bottom = -100;
+    scene.add(directionalLight);
+
+    // Chão
+    const floorGeometry = new THREE.PlaneGeometry(200, 200);
+    const floorMaterial = new THREE.MeshStandardMaterial({
+        color: 0x2d5a27,
+        roughness: 0.8
+    });
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+    floor.rotation.x = Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // Grid para referência de movimento
+    const gridHelper = new THREE.GridHelper(200, 20, 0x44aa44, 0x3a6e32);
+    scene.add(gridHelper);
+
+    // Obstáculos / Caixas
+    const boxes = [];
+    const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
+    const boxMaterial = new THREE.MeshStandardMaterial({ color: 0xccaa00 });
+
+    for (let i = 0; i < 30; i++) {
+        const box = new THREE.Mesh(boxGeometry, boxMaterial);
+        box.position.set(
+            (Math.random() - 0.5) * 80,
+            0.5,
+            (Math.random() - 0.5) * 80
+        );
+        box.scale.set(
+            0.5 + Math.random() * 1.5,
+            1,
+            0.5 + Math.random() * 1.5
+        );
+        box.castShadow = true;
+        box.receiveShadow = true;
+        scene.add(box);
+        boxes.push(box);
+    }
+
+    // Arma (modelo simples)
+    const weaponGroup = new THREE.Group();
+    const weaponBody = new THREE.Mesh(
+        new THREE.BoxGeometry(0.15, 0.25, 0.8),
+        new THREE.MeshStandardMaterial({ color: 0x333333 })
+    );
+    weaponBody.position.set(0, -0.25, -0.4);
+    weaponGroup.add(weaponBody);
+
+    const weaponBarrel = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, 0.08, 0.4),
+        new THREE.MeshStandardMaterial({ color: 0x1a1a1a })
+    );
+    weaponBarrel.position.set(0, -0.15, -0.6);
+    weaponGroup.add(weaponBarrel);
+
+    weaponGroup.position.set(0.3, -0.4, -0.6);
+    scene.add(weaponGroup);
+
+    // Partículas de tiros
+    const particles = [];
+    function criarParticulaTiro() {
+        const geometry = new THREE.SphereGeometry(0.03, 8, 8);
+        const material = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+        const particle = new THREE.Mesh(geometry, material);
+
+        particle.position.copy(camera.position);
+        particle.position.x += Math.sin(cameraRotation.yaw * Math.PI / 180) * 0.3;
+        particle.position.z += Math.cos(cameraRotation.yaw * Math.PI / 180) * 0.3;
+        particle.position.y += Math.sin(cameraRotation.pitch * Math.PI / 180) * 0.3;
+
+        scene.add(particle);
+        particles.push({ mesh: particle, life: 1.0 });
+    }
+
+    function atualizarParticulas() {
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.life -= 0.03;
+            p.mesh.position.y += 0.05;
+            p.mesh.material.opacity = p.life;
+            if (p.life <= 0) {
+                scene.remove(p.mesh);
+                particles.splice(i, 1);
+            }
+        }
+    }
+
+    // Colisão simples com caixas
+    function checkCollision(newPos) {
+        for (const box of boxes) {
+            if (Math.abs(newPos.x - box.position.x) < box.scale.x / 2 + 0.3 &&
+                Math.abs(newPos.z - box.position.z) < box.scale.z / 2 + 0.3) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ============================================================
+    // LOOP PRINCIPAL DO JOGO
+    // ============================================================
+    const clock = new THREE.Clock();
+    let isGameActive = false;
+
+    document.getElementById('start-btn').addEventListener('click', () => {
+        document.getElementById('start-screen').style.display = 'none';
+        isGameActive = true;
+        renderer.setAnimationLoop(gameLoop);
+    });
+
+    function gameLoop() {
+        if (!isGameActive) return;
+
+        const delta = Math.min(clock.getDelta(), 0.1);
+
+        // Mover jogador
+        atualizarPosicaoDoPersonagem(player.maxSpeed * delta);
+
+        // Colisão simples
+        const oldX = player.position.x;
+        const oldZ = player.position.z;
+        if (checkCollision(player.position)) {
+            player.position.x = oldX;
+            player.position.z = oldZ;
+        }
+
+        // Atualizar câmera
+        camera.position.x = player.position.x;
+        camera.position.z = player.position.z;
+        camera.rotation.order = 'YXZ';
+        camera.rotation.y = cameraRotation.yaw * Math.PI / 180;
+        camera.rotation.x = cameraRotation.pitch * Math.PI / 180;
+        camera.lookAt(player.position.x, 1.6, player.position.z);
+
+        // Armar o crosshair
+        if (Math.abs(moveInput.x) > 0.1 || Math.abs(moveInput.y) > 0.1) {
+            document.getElementById('crosshair').classList.add('active');
+        } else {
+            document.getElementById('crosshair').classList.remove('active');
+        }
+
+        // Atualizar HUD
+        document.getElementById('yaw-val').textContent = Math.round(cameraRotation.yaw);
+        document.getElementById('pitch-val').textContent = Math.round(cameraRotation.pitch);
+        document.getElementById('input-x').textContent = moveInput.x.toFixed(2);
+        document.getElementById('input-y').textContent = moveInput.y.toFixed(2);
+
+        // Atualizar arma
+        weaponGroup.position.copy(camera.position);
+        weaponGroup.position.y -= 0.4;
+        weaponGroup.position.z -= 0.6;
+
+        // Arma segue a rotação da câmera
+        const weaponYaw = cameraRotation.yaw * Math.PI / 180;
+        const weaponPitch = cameraRotation.pitch * Math.PI / 180;
+        weaponGroup.rotation.y = weaponYaw;
+        weaponGroup.rotation.x = weaponPitch;
+
+        // Partículas
+        if (Math.random() < 0.3 && moveInput.x !== 0 || moveInput.y !== 0) {
+            criarParticulaTiro();
+        }
+        atualizarParticulas();
+
+        renderer.render(scene, camera);
+    }
+
+    // Responsividade
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ============================================================
+    // CONTROLES DO TECLADO (WASD) - Integração com Módulo 1
+    // ============================================================
+    const keys = {};
+    window.addEventListener('keydown', (e) => {
+        const key = e.key.toLowerCase();
+        if (key === 'w') {
+            moveInput.y = 1;
+        }
+        if (key === 's') {
+            moveInput.y = -1;
+        }
+        if (key === 'a') {
+            moveInput.x = -1;
+        }
+        if (key === 'd') {
+            moveInput.x = 1;
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        const key = e.key.toLowerCase();
+        if (key === 'w' || key === 's') {
+            moveInput.y = 0;
+        }
+        if (key === 'a' || key === 'd') {
+            moveInput.x = 0;
+        }
+    });
+
+    // ============================================================
+    // CONTROLE DE MOUSE (Mira - Módulo 3)
+    // ============================================================
+    let isMouseLocked = false;
+    document.getElementById('game-container').addEventListener('pointerlockchange', () => {
+        if (document.pointerLockElement === document.body) {
+            isMouseLocked = true;
+            document.body.requestPointerLock = true;
+        } else {
+            isMouseLocked = false;
+        }
+    });
+
+    document.body.addEventListener('mousemove', (e) => {
+        if (isMouseLocked) {
+            cameraRotation.yaw -= e.movementX * 0.5;
+            cameraRotation.pitch -= e.movementY * 0.5;
+            limitarPitch();
+        }
+    });
+
+    document.getElementById('shoot-btn').addEventListener('click', () => {
+        if (isMouseLocked) dispararArma();
+    });
+
+    // ============================================================
+    // BOTÃO DE JOGO NO MOBILE
+    // ============================================================
+    const gameBtn = document.createElement('div');
+    gameBtn.innerHTML = '🎮';
+    gameBtn.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        width: 60px;
+        height: 60px;
+        background: rgba(78, 192, 255, 0.8);
+        border-radius: 50%;
+        font-size: 24px;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 100;
+        border: 2px solid rgba(255,255,255,0.5);
+    `;
+    document.body.appendChild(gameBtn);
+
+    gameBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        document.getElementById('game-container').requestPointerLock();
+    });
+
+    // Mostrar botão de jogo no mobile
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (isMobile) {
+        gameBtn.style.display = 'flex';
+    }
+
+    console.log("FPS - Controle Unificado carregado!");
+    console.log("Módulo 1: Estado global de controles pronto.");
+    console.log("Módulo 2: Joystick virtual pronto.");
+    console.log("Módulo 3: Botão de tiro com mira pronto.");
+    console.log("Módulo 4: Movimento relativo à câmera pronto.");
+
+    </script>
+</body>
+</html>
