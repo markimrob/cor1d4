@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <!-- Meta tag essencial para responsividade e prevenção de zoom involuntário no celular -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FPS Web Mobile - Guia de Estudo Three.js</title>
+    
+    <!-- Biblioteca Three.js para renderização 3D WebGL -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- Tailwind CSS para estilização rápida dos elementos de UI (HUD) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        /* CSS CRÍTICO PARA JOGOS MOBILE:
+           1. touch-action: none desativa rolagem, zoom de pinça e gestos nativos do navegador.
+           2. user-select: none impede a seleção acidental de textos na interface durante o jogo.
+        */
+        * {
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            box-sizing: border-box;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        /* Canvas do Three.js em tela cheia no fundo */
+        #game-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* Camada da HUD (Interface) por cima do canvas 3D */
+        #hud-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none; /* Deixa os toques passarem para o JS gerenciar manualmente */
+        }
+
+        /* Reativa eventos de clique nos elementos clicáveis da HUD */
+        .interactive {
+            pointer-events: auto;
+        }
+
+        /* Visualização do Joystick Virtual */
+        #joystick-base {
+            position: absolute;
+            width: 120px;
+            height: 120px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            display: none; /* Surge apenas ao tocar */
+            pointer-events: none;
+            box-shadow: 0 0 15px rgba(0,0,0,0.3);
+        }
+
+        #joystick-stick {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        }
+
+        /* Mira Central (Crosshair) */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(255, 255, 255, 0.8);
+        }
+        #crosshair::before { top: 4px; left: -8px; width: 26px; height: 2px; }
+        #crosshair::after { top: -8px; left: 4px; width: 2px; height: 26px; }
+    </style>
+</head>
+<body>
+
+    <!-- Canvas onde o Three.js vai renderizar o mundo 3D -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Camada de Interface HUD -->
+    <div id="hud-container">
+        <!-- Mira no Centro -->
+        <div id="crosshair"></div>
+
+        <!-- Indicador visual do Joystick Virtual -->
+        <div id="joystick-base">
+            <div id="joystick-stick"></div>
+        </div>
+
+        <!-- Painel Superior: Placar e Botão Fullscreen -->
+        <div class="absolute top-4 left-4 right-4 flex justify-between items-center text-white">
+            <div class="bg-black/60 backdrop-blur-md px-4 py-2 rounded-xl border border-white/10">
+                <span class="text-xs text-gray-400 block uppercase font-bold tracking-wider">Alvos Restantes</span>
+                <span id="score-display" class="text-2xl font-black text-amber-400">0 / 0</span>
+            </div>
+            
+            <button id="btn-fullscreen" class="interactive bg-white/10 hover:bg-white/20 active:scale-95 transition-all p-3 rounded-xl border border-white/20 text-xs font-semibold backdrop-blur-md">
+                📱 Tela Cheia
+            </button>
+        </div>
+
+        <!-- Botões de Ação na Direita (Atirar e Pular) -->
+        <div class="absolute bottom-8 right-6 flex flex-col gap-4 items-center">
+            <!-- Botão de Atirar -->
+            <button id="btn-shoot" class="interactive w-20 h-20 bg-red-600/80 active:bg-red-500 text-white font-black text-xs rounded-full border-2 border-red-400 shadow-lg flex items-center justify-center active:scale-95 transition-transform backdrop-blur-sm">
+                ATIRAR
+            </button>
+            
+            <!-- Botão de Pular -->
+            <button id="btn-jump" class="interactive w-16 h-16 bg-blue-600/80 active:bg-blue-500 text-white font-bold text-xs rounded-full border-2 border-blue-400 shadow-lg flex items-center justify-center active:scale-95 transition-transform backdrop-blur-sm">
+                PULAR
+            </button>
+        </div>
+
+        <!-- Overlay de Tela Inicial / Vitória -->
+        <div id="start-overlay" class="interactive absolute inset-0 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white z-50">
+            <h1 class="text-3xl font-extrabold mb-2 text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500">
+                FPS Web Mobile Tutor
+            </h1>
+            <p class="text-sm text-gray-300 max-w-xs mb-6">
+                Toque no lado <b>esquerdo</b> para mover.<br>
+                Arraste no lado <b>direito</b> para olhar.<br>
+                Destrua todos os cubos alvos!
+            </p>
+            <button id="btn-start" class="px-8 py-4 bg-gradient-to-r from-amber-500 to-orange-600 font-extrabold text-lg rounded-2xl shadow-xl active:scale-95 transition-transform">
+                INICIAR JOGO
+            </button>
+        </div>
+    </div>
+
+    <!-- SCRIPT PRINCIPAL DO JOGO -->
+    <script>
+        /**
+         * ESTUDO DE IMPLEMENTAÇÃO: FPS WEB MOBILE COM THREE.JS
+         * ===================================================
+         * Sumário da Estrutura:
+         * 1. Configuração do Cenário 3D (Cena, Câmera, Iluminação, Alvos)
+         * 2. Rastreamento Touch via Pointer Events (Multi-touch)
+         * 3. Rotação da Câmera (Matemática Yaw e Pitch)
+         * 4. Movimento e Física (Frenagem, Gravidade, Pulo)
+         * 5. Mecânica de Tiro (Raycasting)
+         * 6. Loop Principal do Jogo (Game Loop)
+         */
+
+        // ==========================================
+        // 1. CONFIGURAÇÃO DA CENA THREE.JS
+        // ==========================================
+        const canvas = document.getElementById('game-canvas');
+        
+        // A Cena 3D é o "container" de todos os objetos, luzes e câmeras
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111827); // Cor de fundo estilo céu noturno/escuro
+        scene.fog = new THREE.FogExp2(0x111827, 0.03); // Névoa para suavizar o limite de renderização
+
+        // Câmera Perspectiva (Simula o olho humano)
+        // Parâmetros: (FOV de 75°, Razão de Aspecto, Distância Próxima, Distância Distante)
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
+        // Criamos um objeto "Player" para segurar a câmera. Isso facilita calcular a movimentação.
+        const player = new THREE.Object3D();
+        player.position.set(0, 1.6, 0); // Altura dos olhos humana ~1.6m
+        player.add(camera);
+        scene.add(player);
+
+        // Renderer WebGL
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Otimização para telas de alta densidade
+        renderer.shadowMap.enabled = true;
+
+        // Iluminação
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // Luz ambiente difusa
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8); // Luz solar direcionada para sombras
+        dirLight.position.set(20, 40, 20);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        // Chão (Piso do Mapa)
+        const floorGeo = new THREE.PlaneGeometry(100, 100);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.8 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2; // Rotaciona para deitar no plano horizontal
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // Grid auxiliar para visualização do chão
+        const gridHelper = new THREE.GridHelper(100, 50, 0xf59e0b, 0x374151);
+        gridHelper.position.y = 0.01;
+        scene.add(gridHelper);
+
+        // Lista de Alvos (Cubos)
+        const targets = [];
+        const TOTAL_TARGETS = 10;
+        let score = 0;
+
+        function buildTargets() {
+            // Limpa alvos antigos se houver
+            targets.forEach(t => scene.remove(t));
+            targets.length = 0;
+
+            const targetGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+            const targetMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.3, metalness: 0.2 });
+
+            for (let i = 0; i < TOTAL_TARGETS; i++) {
+                const mesh = new THREE.Mesh(targetGeo, targetMat);
+                // Posiciona aleatoriamente ao redor do mapa
+                mesh.position.x = (Math.random() - 0.5) * 40;
+                mesh.position.y = 1 + Math.random() * 3;
+                mesh.position.z = -5 - Math.random() * 30;
+                mesh.castShadow = true;
+                
+                scene.add(mesh);
+                targets.push(mesh);
+            }
+            updateScoreUI();
+        }
+
+        function updateScoreUI() {
+            document.getElementById('score-display').textContent = `${score} / ${TOTAL_TARGETS}`;
+        }
+
+        // ==========================================
+        // 2. SISTEMA DE TOQUE (POINTER EVENTS)
+        // ==========================================
+        /**
+         * EXPLICAÇÃO DOS POINTER EVENTS:
+         * O Pointer Events rastreia múltiplos toques na tela atribuindo um 'pointerId' único para cada dedo.
+         * Dividimos a tela ao meio:
+         * - Lado Esquerdo (clientX < largura/2): Controla o Joystick Virtual (Movimento).
+         * - Lado Direito (clientX >= largura/2): Controla o Arraste da Câmera (Olhar).
+         */
+
+        let movePointerId = null; // ID do dedo no joystick
+        let lookPointerId = null; // ID do dedo na área de olhar
+
+        // Posições e vetores do Joystick
+        let joystickCenter = { x: 0, y: 0 };
+        let joystickVector = { x: 0, y: 0 }; // Valores normalizados entre -1 e 1
+        const maxJoystickRadius = 50;
+
+        // Posição anterior do toque da câmera
+        let lastLookTouch = { x: 0, y: 0 };
+
+        // Rotação da Câmera (em Radianos)
+        // Yaw = Rotação horizontal (olhar para os lados)
+        // Pitch = Rotação vertical (olhar para cima/baixo)
+        let yaw = 0;
+        let pitch = 0;
+
+        // Elementos visuais do joystick
+        const joystickBase = document.getElementById('joystick-base');
+        const joystickStick = document.getElementById('joystick-stick');
+
+        window.addEventListener('pointerdown', (e) => {
+            // Se o toque for na HUD interativa (ex: botões), ignora a lógica da câmera/joystick
+            if (e.target.classList.contains('interactive')) return;
+
+            const isLeftSide = e.clientX < window.innerWidth / 2;
+
+            // --- LADO ESQUERDO: INICIAR JOYSTICK ---
+            if (isLeftSide && movePointerId === null) {
+                movePointerId = e.pointerId;
+                joystickCenter = { x: e.clientX, y: e.clientY };
+                
+                // Exibe a base do joystick onde o jogador tocou
+                joystickBase.style.display = 'block';
+                joystickBase.style.left = `${e.clientX}px`;
+                joystickBase.style.top = `${e.clientY}px`;
+                joystickStick.style.transform = `translate(-50%, -50%)`;
+                
+                joystickVector = { x: 0, y: 0 };
+            }
+            
+            // --- LADO DIREITO: INICIAR OLHAR ---
+            else if (!isLeftSide && lookPointerId === null) {
+                lookPointerId = e.pointerId;
+                lastLookTouch = { x: e.clientX, y: e.clientY };
+            }
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            // --- ATUALIZAR JOYSTICK ---
+            if (e.pointerId === movePointerId) {
+                const deltaX = e.clientX - joystickCenter.x;
+                const deltaY = e.clientY - joystickCenter.y;
+                
+                const distance = Math.hypot(deltaX, deltaY); // Distância do centro
+                const angle = Math.atan2(deltaY, deltaX);    // Ângulo do movimento
+
+                // Clampa (limita) a distância do botão dentro do raio máximo da base
+                const clampedDist = Math.min(distance, maxJoystickRadius);
+
+                const stickX = Math.cos(angle) * clampedDist;
+                const stickY = Math.sin(angle) * clampedDist;
+
+                // Move visualmente o pino (stick) do joystick
+                joystickStick.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
+
+                // Normaliza os valores do vetor entre -1.0 e 1.0 para calcular a velocidade
+                joystickVector.x = stickX / maxJoystickRadius;
+                joystickVector.y = stickY / maxJoystickRadius;
+            }
+
+            // --- ATUALIZAR CAMERA (YAW & PITCH) ---
+            if (e.pointerId === lookPointerId) {
+                const deltaX = e.clientX - lastLookTouch.x;
+                const deltaY = e.clientY - lastLookTouch.y;
+
+                lastLookTouch = { x: e.clientX, y: e.clientY };
+
+                // Sensibilidade de rotação
+                const sensitivity = 0.004;
+
+                // Yaw altera a rotação Horizontal (girar no eixo Y do mundo)
+                yaw -= deltaX * sensitivity;
+
+                // Pitch altera a rotação Vertical (girar no eixo X local da câmera)
+                pitch -= deltaY * sensitivity;
+
+                // TRAVA DO PITCH: Impede a câmera de virar de ponta-cabeça (Limite de ~85º)
+                const maxPitch = Math.PI / 2 - 0.05;
+                pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch));
+            }
+        });
+
+        // Finalização dos toques
+        const handlePointerEnd = (e) => {
+            if (e.pointerId === movePointerId) {
+                movePointerId = null;
+                joystickVector = { x: 0, y: 0 };
+                joystickBase.style.display = 'none'; // Esconde a base visual
+            }
+            if (e.pointerId === lookPointerId) {
+                lookPointerId = null;
+            }
+        };
+
+        window.addEventListener('pointerup', handlePointerEnd);
+        window.addEventListener('pointercancel', handlePointerEnd);
+
+        // ==========================================
+        // 3. FÍSICA E MOVIMENTAÇÃO DO JOGADOR
+        // ==========================================
+        const velocity = new THREE.Vector3(); // Vetor de velocidade atual
+        let isGrounded = true;                // Indica se o jogador está pisando no chão
+        const GRAVITY = 25.0;                 // Força da gravidade
+        const MOVE_SPEED = 8.0;               // Velocidade de caminhada
+        const JUMP_FORCE = 9.0;               // Impulso do pulo
+
+        function updatePlayerPhysics(deltaTime) {
+            // --- APLICAR ROTAÇÃO DA CÂMERA ---
+            // O corpo do player gira na horizontal (Yaw)
+            player.rotation.y = yaw;
+            // Apenas a câmera gira na vertical (Pitch)
+            camera.rotation.x = pitch;
+
+            // --- FÍSICA DE MOVIMENTO (JOYSTICK) ---
+            // Criamos um vetor de direção local com base nas entradas do joystick
+            // joystickVector.x -> Esquerda/Direita
+            // joystickVector.y -> Frente/Trás (Invertido na tela: cima é negativo no canvas)
+            const moveDirection = new THREE.Vector3(joystickVector.x, 0, joystickVector.y);
+
+            // Transforma a direção relativa da câmera para o espaço de rotação do mundo
+            moveDirection.applyQuaternion(player.quaternion);
+            moveDirection.y = 0; // Impede que o player "voe" ao olhar para cima
+            moveDirection.normalize();
+
+            // Interpolação suave de aceleração e desaceleração (Atrito)
+            const friction = 10.0;
+            velocity.x -= velocity.x * friction * deltaTime;
+            velocity.z -= velocity.z * friction * deltaTime;
+
+            if (Math.abs(joystickVector.x) > 0.1 || Math.abs(joystickVector.y) > 0.1) {
+                velocity.x += moveDirection.x * MOVE_SPEED * friction * deltaTime;
+                velocity.z += moveDirection.z * MOVE_SPEED * friction * deltaTime;
+            }
+
+            // Aplica translação x e z no jogador
+            player.translateX(velocity.x * deltaTime);
+            player.translateZ(velocity.z * deltaTime);
+
+            // --- FÍSICA DE GRAVIDADE E PULO ---
+            velocity.y -= GRAVITY * deltaTime; // Aplica gravidade contínua
+            player.position.y += velocity.y * deltaTime;
+
+            // Colisão simples com o piso
+            if (player.position.y <= 1.6) {
+                velocity.y = 0;
+                player.position.y = 1.6;
+                isGrounded = true;
+            }
+        }
+
+        // Evento do Botão de Pular
+        document.getElementById('btn-jump').addEventListener('pointerdown', (e) => {
+            e.stopPropagation();
+            if (isGrounded) {
+                velocity.y = JUMP_FORCE;
+                isGrounded = false;
+            }
+        });
+
+        // ==========================================
+        // 4. MECÂNICA DE TIRO (RAYCASTER)
+        // ==========================================
+        /**
+         * EXPLICAÇÃO DO RAYCASTER:
+         * O Raycaster lança um raio invisível partir do centro da tela (coordenadas 0,0 na câmera 3D).
+         * Em seguida, testamos se esse raio colidiu com algum elemento da lista de 'targets'.
+         */
+        const raycaster = new THREE.Raycaster();
+        const centerScreen = new THREE.Vector2(0, 0); // Ponto (0,0) é o centro exato da Viewport no Three.js
+
+        function shoot() {
+            // Atualiza o raio para partir do centro da câmera
+            raycaster.setFromCamera(centerScreen, camera);
+
+            // Verifica interseções com os alvos
+            const intersects = raycaster.intersectObjects(targets);
+
+            // Feedback visual rápido de disparo (efeito no flash da tela ou animação)
+            const crosshair = document.getElementById('crosshair');
+            crosshair.style.transform = 'translate(-50%, -50%) scale(1.5)';
+            setTimeout(() => crosshair.style.transform = 'translate(-50%, -50%) scale(1)', 100);
+
+            if (intersects.length > 0) {
+                const hitTarget = intersects[0].object;
+
+                // Animação/Efeito de acerto: Encolhe e remove o cubo
+                hitTarget.scale.set(0, 0, 0);
+                
+                // Remove da cena e do array
+                setTimeout(() => {
+                    scene.remove(hitTarget);
+                    const index = targets.indexOf(hitTarget);
+                    if (index > -1) targets.splice(index, 1);
+                }, 100);
+
+                score++;
+                updateScoreUI();
+
+                // Checa condição de vitória
+                if (score >= TOTAL_TARGETS) {
+                    setTimeout(() => {
+                        alert("🎉 Parabéns! Você destruiu todos os alvos!");
+                        score = 0;
+                        buildTargets();
+                    }, 300);
+                }
+            }
+        }
+
+        // Listener para o botão de Atirar
+        document.getElementById('btn-shoot').addEventListener('pointerdown', (e) => {
+            e.stopPropagation(); // Evita interferir nos gestos de câmera
+            shoot();
+        });
+
+        // ==========================================
+        // 5. GAME LOOP PRINCIPAL
+        // ==========================================
+        let lastTime = performance.now();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Cálculo do DeltaTime para manter a velocidade do jogo idêntica
+            // independente do FPS da tela (60Hz, 90Hz, 120Hz).
+            const currentTime = performance.now();
+            const deltaTime = Math.min((currentTime - lastTime) / 1000, 0.1); // Limita em caso de lag
+            lastTime = currentTime;
+
+            // Atualiza Lógica
+            updatePlayerPhysics(deltaTime);
+
+            // Rotação suave constante dos alvos para efeito visual 3D
+            targets.forEach(target => {
+                target.rotation.x += 0.5 * deltaTime;
+                target.rotation.y += 0.8 * deltaTime;
+            });
+
+            // Renderiza a cena 3D a partir da perspectiva da câmera
+            renderer.render(scene, camera);
+        }
+
+        // ==========================================
+        // 6. UTILITÁRIOS E GERENCIAMENTO DE TELA
+        // ==========================================
+        // Redimensionamento responsivo do Canvas quando a orientação muda
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Botão de Tela Cheia (Fullscreen API)
+        document.getElementById('btn-fullscreen').addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.log(`Erro ao ativar tela cheia: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        // Início do Jogo no Overlay
+        document.getElementById('btn-start').addEventListener('click', () => {
+            document.getElementById('start-overlay').style.display = 'none';
+            
+            // Tenta abrir em fullscreen no celular para melhor experiência
+            if (window.innerWidth < 768 && document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            }
+
+            // Inicializa/Reseta o jogo
+            score = 0;
+            player.position.set(0, 1.6, 0);
+            yaw = 0;
+            pitch = 0;
+            buildTargets();
+            
+            // Inicia o loop do jogo
+            lastTime = performance.now();
+            animate();
+        });
+
+        // Constrói os alvos inicialmente
+        buildTargets();
+    </script>
+</body>
+</html>
